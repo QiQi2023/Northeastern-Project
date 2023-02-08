@@ -1,0 +1,179 @@
+### Load libraries
+library(stargazer)
+library(tidyverse)
+library(lfe) 
+library(readxl)
+library(ggplot2)
+library(dplyr)
+
+### Set full data file path location here
+file_path <- "/Users/kiki/Desktop/NEU 23 Spring/[MISM6210]HBS Course Pack_Data Sets/Champo Carpets.xlsx"
+
+##########################################################################
+
+### Summary Statistics
+##Using the “Raw Data-Order and Sample” worksheet, 
+##calculate descriptive statistics for order categories and revenue, 
+##and further break down revenue by carpet type, country, and customer.
+
+order <- tibble(read_excel(file_path, sheet = "Raw Data-Order and Sample"))
+
+#calculate descriptive statistics for order categories and revenue
+order %>%
+  group_by (OrderCategory) %>%
+  dplyr :: summarize(across(Amount, mean))
+#Since "Sample" dose not generate any revenue, we will excluded it from summary statistics below:
+#calculate descriptive statistics for country and revenue
+order %>%
+  group_by (CountryName) %>%
+  filter(OrderCategory == "Order") %>%
+  dplyr :: summarize(across(Amount, mean))
+#calculate descriptive statistics for carpet type and revenue
+order %>%
+  group_by (ITEM_NAME) %>%
+  filter(OrderCategory == "Order") %>%
+  dplyr :: summarize(across(Amount, mean))
+
+#calculate descriptive statistics for customer and revenue
+order %>%
+  group_by (CustomerCode) %>%
+  filter(OrderCategory == "Order") %>%
+  dplyr :: summarize(across(Amount, sum))
+order %>%
+  group_by (CustomerCode) %>%
+  filter(OrderCategory == "Order") %>%
+  dplyr::summarize(mean = mean(Amount),
+                   sum = sum(Amount))
+
+###Plot
+##Top 5 most important type of carpet for the firm
+
+carpet <- order %>%
+  group_by(ITEM_NAME) %>%
+  filter(OrderCategory == "Order") %>%
+  summarize(mean_profit = mean(Amount)) %>%
+  arrange(desc(mean_profit))
+
+ggplot(head(carpet,5), 
+       aes(y = mean_profit, x = as.factor(ITEM_NAME))) +
+  geom_bar(stat="summary", fun="mean") +
+  ggtitle("Most Important Type of Carpet") + 
+  xlab("Type of Carpet") +
+  ylab("Profit")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##Top 5 most important customers for the firm
+order_by_profit <- order %>%
+  group_by(CustomerCode) %>%
+  filter(OrderCategory == "Order") %>%
+  summarize(total_profit = sum(Amount)) %>%
+  arrange(desc(total_profit))
+
+ggplot(head(order_by_profit, 5), aes(x = CustomerCode, y = total_profit)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Top 5 Most Profitable Customers") + 
+  xlab("Customers") +
+  ylab("Total Profit")
+
+##########################################################################
+###Create a dataset of conversions
+champo <- tibble(read_excel(file_path, sheet = "Raw Data-Order and Sample"))
+champo_conv <-
+  champo %>%
+  filter(OrderCategory == "Sample") %>% ## get the samples sent out
+  left_join(
+    champo %>%
+      filter(OrderCategory == "Order") ## get the  orders placed
+    ,   ## join the two sets together, based on matching of characteristics
+    ## and subsequent orders being placed
+    join_by(CustomerCode == CustomerCode, 
+            ITEM_NAME == ITEM_NAME, 
+            DesignName == DesignName,
+            ColorName == ColorName,
+            QualityName == QualityName,
+            Custorderdate<=Custorderdate),
+    
+    suffix = c("", ".drop") ## Many of the columns in the orders will
+    ## be duplicates, so make it easy to drop them
+  ) %>%
+  mutate(
+    conversion = as.numeric(!is.na(OrderType.drop)), ## Code for conversions, i.e.matching order
+    OrderType_order = OrderType.drop, ## Create new variables for what we want to keep
+    Custorderdate_order = Custorderdate.drop, 
+    UnitName_order = UnitName.drop, 
+    QtyRequired_order = QtyRequired.drop, 
+    TotalArea_order =  TotalArea.drop, 
+    Amount_order = Amount.drop, 
+    AreaFt_order = AreaFt.drop
+  ) %>%
+  select(-ends_with(".drop")) ## Drop everything else
+
+##########################################################################
+
+####What types of items have the highest conversion rate from samples?
+###Conversion rate
+# Create a data set for each carpet's conversion condition
+df <- data.frame(champo_conv$ITEM_NAME, champo_conv$conversion)
+
+# Calculate the conversion rate
+conversion_rate <- df %>%
+  group_by(champo_conv.ITEM_NAME) %>%
+  summarise(conversion_rate = mean(champo_conv.conversion))
+
+# Plot the conversion rate
+ggplot(conversion_rate, aes(x=champo_conv.ITEM_NAME, y=conversion_rate)) +
+  geom_bar(stat="identity") +
+  ggtitle("Conversion Rates for Items") +
+  ylab("Conversion Rate") +
+  xlab("Type of Carpets")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##########################################################################
+
+###What is the revenue from the converted orders? 
+total_revenue <- champo_conv %>%
+  group_by(ITEM_NAME) %>%
+  filter(conversion == 1) %>%
+  summarise(total_revenue = sum(Amount_order))
+
+##Plot the total revenue generated by each type of carpets samples.
+ggplot(total_revenue, aes(x=ITEM_NAME, y=total_revenue)) +
+  geom_bar(stat="identity")+
+  ggtitle("Total Revenue for Samples") +
+  ylab("Total Revenue") +
+  xlab("Type of Carpets") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##########################################################################
+
+###Which customers seem to be most receptive to receiving samples?
+###Are they the most profitable?
+#Most receptive customer by descending order
+customer_reception <- champo_conv %>%
+  group_by(CustomerCode) %>%
+  summarise(conversion_rate = mean(conversion)) %>%
+  arrange(desc(conversion_rate))
+
+ggplot(head(customer_reception,5), aes(x=reorder(CustomerCode, conversion_rate), y=conversion_rate)) +
+  geom_bar(stat="identity") +
+  ggtitle("Conversion Rates for Customers") +
+  ylab("Conversion Rate") +
+  xlab("Customer")
+
+
+##########################################################################
+
+#Profitable customer
+customer_revenue <- champo_conv %>%
+  group_by(CustomerCode) %>%
+  filter(conversion == 1) %>%
+  summarise(total_revenue = sum(Amount_order)) %>%
+  arrange(desc(total_revenue))
+
+ggplot(head(customer_revenue,5), aes(x=reorder(CustomerCode, total_revenue), y=total_revenue)) +
+  geom_bar(stat="identity") +
+  ggtitle("Total Revenue Generated By Customers") +
+  ylab("Total Revenue") +
+  xlab("Customer")
+
+
