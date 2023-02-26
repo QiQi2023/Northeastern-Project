@@ -3,6 +3,7 @@
 ### MISM 6210 - 36993 - Spring 2023
 
 ### Analysis 01 - Yang QiQi
+###Analyzing the Effectiveness of Limited Signal Message
 library(stargazer)
 library(tidyverse)
 library(lfe) 
